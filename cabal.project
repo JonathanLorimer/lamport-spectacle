@@ -1,0 +1,5 @@
+packages: .
+source-repository-package
+    type: git
+    location: https://github.com/awakesecurity/spectacle
+    tag: 7e7efd64755252f2697f19ff44da47893c15629c
