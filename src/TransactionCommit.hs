@@ -18,7 +18,6 @@ import Language.Spectacle
     forall,
     modelCheck,
     plain,
-    -- prime,
     strongFair,
     (.=),
     (/\),
@@ -37,7 +36,7 @@ import Language.Spectacle.Specification
       ),
   )
 
-data Constants =
+newtype Constants =
   Constants
     { rmQuantity :: Natural
     }
@@ -67,6 +66,7 @@ next = foldr (\/) (pure True)
   [ prepare
   , decide
   ]
+
     where
       -- Direct Actions
       prepare = do
@@ -95,14 +95,10 @@ next = foldr (\/) (pure True)
         (#resourceManagers .= pure (unsafeUpdate idx Aborted rms)) $> True
 
       canCommit :: [ResourceManagerState] -> Action TransactionCommit Bool
-      canCommit rms = do
-        -- rms <- plain #resourceManagers
-        forall rms $ \rm -> pure $ rm == Prepared || rm == Committed
+      canCommit rms = forall rms $ \rm -> pure $ rm == Prepared || rm == Committed
 
       notCommitted :: [ResourceManagerState] -> Action TransactionCommit Bool
-      notCommitted rms = do
-        -- rms <- plain #resourceManagers
-        forall rms $ \rm -> pure $ rm /= Committed
+      notCommitted rms = forall rms $ \rm -> pure $ rm /= Committed
 
 
 
@@ -112,7 +108,7 @@ formula =
     where
       abortAndCommit = do
         rms <- plain #resourceManagers
-        pure (any (== Committed) rms && any (== Aborted) rms)
+        pure (elem Committed rms && elem Aborted rms)
 
 termination :: Terminate TransactionCommit Bool
 termination = do
@@ -122,7 +118,7 @@ termination = do
 
 check :: IO ()
 check = do
-  let constants = Constants { rmQuantity = 5 }
+  let constants = Constants { rmQuantity = 7 }
       spec :: Specification TransactionCommit
       spec =
         Specification
@@ -134,4 +130,4 @@ check = do
           }
   defaultInteraction (modelCheck spec)
 
--- $> check
+---- $> check
