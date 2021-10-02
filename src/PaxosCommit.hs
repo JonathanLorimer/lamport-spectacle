@@ -1,12 +1,9 @@
-{-# LANGUAGE DeriveAnyClass, DeriveGeneric, OverloadedLists  #-}
+{-# LANGUAGE OverloadedLabels, ExplicitNamespaces, DeriveAnyClass, DeriveGeneric #-}
 module TransactionCommit where
 
-import Prelude hiding (tail, init)
+import Prelude
 import Data.Hashable
 import Data.Functor
-import Data.Vector.Instances ()
-import Data.Vector qualified as V
-import Data.Vector (Vector)
 import GHC.Generics
 import GHC.Natural
 import Language.Spectacle
@@ -39,8 +36,6 @@ import Language.Spectacle.Specification
       ),
   )
 
-{------------------ Setup & Helpers ---------------------}
-
 newtype Constants =
   Constants
     { rmQuantity :: Natural
@@ -54,53 +49,58 @@ data ResourceManagerState =
   deriving (Eq, Show, Generic, Hashable)
 
 type TransactionCommit =
-  '[ "resourceManagers" # Vector ResourceManagerState
+  '[ "resourceManagers" # [ResourceManagerState]
    ]
-
-vec2assoc :: Vector a -> [(Int, a)]
-vec2assoc = V.ifoldr (\i a b -> (i,a) : b) []
-
-{------------------- Specification ----------------------}
 
 initial :: Constants -> Initial TransactionCommit ()
 initial k = do
   #resourceManagers `define` pure ([1.. (rmQuantity k)] $> Working)
 
+unsafeUpdate :: Int -> a -> [a] -> [a]
+unsafeUpdate i e xs =
+  let (init, _:tail) = splitAt i xs
+   in init ++ e : tail
+
 next :: Action TransactionCommit Bool
-next = prepare \/ decide
+next = foldr (\/) (pure True)
+  [ prepare
+  , decide
+  ]
 
     where
       -- Direct Actions
-      prepare :: Action TransactionCommit Bool
       prepare = do
         rms <- plain #resourceManagers
-        exists (vec2assoc rms) $ \(idx,rm) -> do
+        exists (zip [0..] rms) $ \(idx,rm) -> do
           void . pure $ rm == Working
-          (#resourceManagers .= pure (V.update rms [(idx,Prepared)])) $> True
+          (#resourceManagers .= pure (unsafeUpdate idx Prepared rms)) $> True
       decide = do
         rms <- plain #resourceManagers
-        exists (vec2assoc rms) $ \(idx,rm) ->
+        exists (zip [0..] rms) $ \(idx,rm) ->
              decideCommit idx rm rms
           /\ decideAbort idx rm rms
 
+
       -- Indirect Actions
-      decideCommit :: Int -> ResourceManagerState -> Vector ResourceManagerState -> Action TransactionCommit Bool
+      decideCommit :: Int -> ResourceManagerState -> [ResourceManagerState] -> Action TransactionCommit Bool
       decideCommit idx rm rms = do
         void . pure $ rm == Prepared
         void $ canCommit rms
-        (#resourceManagers .= pure (V.update rms [(idx,Committed)])) $> True
+        (#resourceManagers .= pure (unsafeUpdate idx Committed rms)) $> True
 
-      decideAbort :: Int -> ResourceManagerState -> Vector ResourceManagerState -> Action TransactionCommit Bool
+      decideAbort :: Int -> ResourceManagerState -> [ResourceManagerState] -> Action TransactionCommit Bool
       decideAbort idx rm rms = do
         void . pure $ rm == Working || rm == Prepared
         void $ notCommitted rms
-        (#resourceManagers .= pure (V.update rms [(idx,Aborted)])) $> True
+        (#resourceManagers .= pure (unsafeUpdate idx Aborted rms)) $> True
 
-      canCommit :: Vector ResourceManagerState -> Action TransactionCommit Bool
+      canCommit :: [ResourceManagerState] -> Action TransactionCommit Bool
       canCommit rms = forall rms $ \rm -> pure $ rm == Prepared || rm == Committed
 
-      notCommitted :: Vector ResourceManagerState -> Action TransactionCommit Bool
+      notCommitted :: [ResourceManagerState] -> Action TransactionCommit Bool
       notCommitted rms = forall rms $ \rm -> pure $ rm /= Committed
+
+
 
 formula :: Invariant TransactionCommit Bool
 formula =
@@ -115,20 +115,19 @@ termination = do
   rms <- plain #resourceManagers
   pure $ all (== Committed) rms || all (== Aborted) rms
 
-{----------------- Model Checking ----------------------}
-
-constants :: Constants
-constants = Constants { rmQuantity = 6 }
-
-spec :: Specification TransactionCommit
-spec =
-  Specification
-    { initialAction = initial constants
-    , nextAction = next
-    , temporalFormula = formula
-    , terminationFormula = Just termination
-    , fairnessConstraint = strongFair
-    }
 
 check :: IO ()
-check = defaultInteraction $ modelCheck spec
+check = do
+  let constants = Constants { rmQuantity = 7 }
+      spec :: Specification TransactionCommit
+      spec =
+        Specification
+          { initialAction = initial constants
+          , nextAction = next
+          , temporalFormula = formula
+          , terminationFormula = Just termination
+          , fairnessConstraint = strongFair
+          }
+  defaultInteraction (modelCheck spec)
+
+---- $> check

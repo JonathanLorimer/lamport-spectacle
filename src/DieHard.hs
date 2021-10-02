@@ -81,7 +81,6 @@ formula :: Invariant Diehard Bool
 formula = do
   always smallJugBounds
     /\ always bigJugBounds
-    -- /\ always (not <$> solved)
   where
     smallJugBounds = do
       smallJug <- plain #smallJug
@@ -91,26 +90,21 @@ formula = do
       bigJug <- plain #bigJug
       pure (0 <= bigJug && bigJug <= 5)
 
-    -- solved = do
-    --   bigJug <- plain #bigJug
-    --   pure (bigJug /= 4)
-
 termination :: Terminate Diehard Bool
 termination = do
   bigJug <- plain #bigJug
   return (bigJug == 4)
 
+spec :: Specification Diehard
+spec =
+  Specification
+    { initialAction = initial
+    , nextAction = next
+    , temporalFormula = formula
+    , terminationFormula = Just termination
+    , fairnessConstraint = strongFair
+    }
+
 check :: IO ()
 check = do
-  let spec :: Specification Diehard
-      spec =
-        Specification
-          { initialAction = initial
-          , nextAction = next
-          , temporalFormula = formula
-          , terminationFormula = Just termination
-          , fairnessConstraint = strongFair
-          }
   defaultInteraction (modelCheck spec)
-
--- $> check
