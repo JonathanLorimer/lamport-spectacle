@@ -1,4 +1,3 @@
-{-# LANGUAGE OverloadedLabels, ExplicitNamespaces #-}
 module DieHard where
 
 import Prelude
@@ -10,7 +9,6 @@ import Language.Spectacle
     always,
     defaultInteraction,
     define,
-    eventually,
     modelCheck,
     plain,
     prime,
@@ -81,7 +79,9 @@ next = foldr (\/) (pure True)
 
 formula :: Invariant Diehard Bool
 formula = do
-  always smallJugBounds /\ always bigJugBounds  /\ always (not <$> solved)
+  always smallJugBounds
+    /\ always bigJugBounds
+    -- /\ always (not <$> solved)
   where
     smallJugBounds = do
       smallJug <- plain #smallJug
@@ -91,9 +91,9 @@ formula = do
       bigJug <- plain #bigJug
       pure (0 <= bigJug && bigJug <= 5)
 
-    solved = do
-      bigJug <- plain #bigJug
-      pure (bigJug /= 4)
+    -- solved = do
+    --   bigJug <- plain #bigJug
+    --   pure (bigJug /= 4)
 
 termination :: Terminate Diehard Bool
 termination = do

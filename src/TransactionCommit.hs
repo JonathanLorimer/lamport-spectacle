@@ -1,9 +1,12 @@
-{-# LANGUAGE OverloadedLabels, ExplicitNamespaces, DeriveAnyClass, DeriveGeneric #-}
+{-# LANGUAGE DeriveAnyClass, DeriveGeneric, OverloadedLists  #-}
 module TransactionCommit where
 
-import Prelude
+import Prelude hiding (tail, init)
 import Data.Hashable
 import Data.Functor
+import Data.Vector.Instances ()
+import Data.Vector qualified as V
+import Data.Vector (Vector)
 import GHC.Generics
 import GHC.Natural
 import Language.Spectacle
@@ -49,55 +52,51 @@ data ResourceManagerState =
   deriving (Eq, Show, Generic, Hashable)
 
 type TransactionCommit =
-  '[ "resourceManagers" # [ResourceManagerState]
+  '[ "resourceManagers" # Vector ResourceManagerState
    ]
+
+vec2assoc :: Vector a -> [(Int, a)]
+vec2assoc = V.ifoldr (\i a b -> (i,a) : b) []
 
 initial :: Constants -> Initial TransactionCommit ()
 initial k = do
   #resourceManagers `define` pure ([1.. (rmQuantity k)] $> Working)
 
-unsafeUpdate :: Int -> a -> [a] -> [a]
-unsafeUpdate i e xs =
-  let (init, _:tail) = splitAt i xs
-   in init ++ e : tail
-
 next :: Action TransactionCommit Bool
-next = foldr (\/) (pure True)
-  [ prepare
-  , decide
-  ]
+next = prepare \/ decide
 
     where
       -- Direct Actions
+      prepare :: Action TransactionCommit Bool
       prepare = do
         rms <- plain #resourceManagers
-        exists (zip [0..] rms) $ \(idx,rm) -> do
+        exists (vec2assoc rms) $ \(idx,rm) -> do
           void . pure $ rm == Working
-          (#resourceManagers .= pure (unsafeUpdate idx Prepared rms)) $> True
+          (#resourceManagers .= pure (V.update rms [(idx,Prepared)])) $> True
       decide = do
         rms <- plain #resourceManagers
-        exists (zip [0..] rms) $ \(idx,rm) ->
+        exists (vec2assoc rms) $ \(idx,rm) ->
              decideCommit idx rm rms
           /\ decideAbort idx rm rms
 
 
       -- Indirect Actions
-      decideCommit :: Int -> ResourceManagerState -> [ResourceManagerState] -> Action TransactionCommit Bool
+      decideCommit :: Int -> ResourceManagerState -> Vector ResourceManagerState -> Action TransactionCommit Bool
       decideCommit idx rm rms = do
         void . pure $ rm == Prepared
         void $ canCommit rms
-        (#resourceManagers .= pure (unsafeUpdate idx Committed rms)) $> True
+        (#resourceManagers .= pure (V.update rms [(idx,Committed)])) $> True
 
-      decideAbort :: Int -> ResourceManagerState -> [ResourceManagerState] -> Action TransactionCommit Bool
+      decideAbort :: Int -> ResourceManagerState -> Vector ResourceManagerState -> Action TransactionCommit Bool
       decideAbort idx rm rms = do
         void . pure $ rm == Working || rm == Prepared
         void $ notCommitted rms
-        (#resourceManagers .= pure (unsafeUpdate idx Aborted rms)) $> True
+        (#resourceManagers .= pure (V.update rms [(idx,Aborted)])) $> True
 
-      canCommit :: [ResourceManagerState] -> Action TransactionCommit Bool
+      canCommit :: Vector ResourceManagerState -> Action TransactionCommit Bool
       canCommit rms = forall rms $ \rm -> pure $ rm == Prepared || rm == Committed
 
-      notCommitted :: [ResourceManagerState] -> Action TransactionCommit Bool
+      notCommitted :: Vector ResourceManagerState -> Action TransactionCommit Bool
       notCommitted rms = forall rms $ \rm -> pure $ rm /= Committed
 
 
@@ -118,7 +117,7 @@ termination = do
 
 check :: IO ()
 check = do
-  let constants = Constants { rmQuantity = 7 }
+  let constants = Constants { rmQuantity = 10 }
       spec :: Specification TransactionCommit
       spec =
         Specification
@@ -130,4 +129,4 @@ check = do
           }
   defaultInteraction (modelCheck spec)
 
----- $> check
+-- $> check

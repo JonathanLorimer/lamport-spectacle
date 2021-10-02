@@ -18,7 +18,7 @@
     in
     utils.eachDefaultSystem (system:
     let
-      supportedGHCVersion = "8104";
+      supportedGHCVersion = "8107";
       compilerVersion = "ghc${supportedGHCVersion}";
       pkgs = nixpkgs.legacyPackages.${system};
       hsPkgs = pkgs.haskell.packages.${compilerVersion}.override {
