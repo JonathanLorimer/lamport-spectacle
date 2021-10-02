@@ -68,39 +68,38 @@ initial k = do
 
 next :: Action TransactionCommit Bool
 next = prepare \/ decide
+  where
+    -- Direct Actions
+    prepare :: Action TransactionCommit Bool
+    prepare = do
+      rms <- plain #resourceManagers
+      exists (vec2assoc rms) $ \(idx,rm) -> do
+        void . pure $ rm == Working
+        (#resourceManagers .= pure (V.update rms [(idx,Prepared)])) $> True
+    decide = do
+      rms <- plain #resourceManagers
+      exists (vec2assoc rms) $ \(idx,rm) ->
+           decideCommit idx rm rms
+        /\ decideAbort idx rm rms
 
-    where
-      -- Direct Actions
-      prepare :: Action TransactionCommit Bool
-      prepare = do
-        rms <- plain #resourceManagers
-        exists (vec2assoc rms) $ \(idx,rm) -> do
-          void . pure $ rm == Working
-          (#resourceManagers .= pure (V.update rms [(idx,Prepared)])) $> True
-      decide = do
-        rms <- plain #resourceManagers
-        exists (vec2assoc rms) $ \(idx,rm) ->
-             decideCommit idx rm rms
-          /\ decideAbort idx rm rms
+    -- Indirect Actions
+    decideCommit :: Int -> ResourceManagerState -> Vector ResourceManagerState -> Action TransactionCommit Bool
+    decideCommit idx rm rms = do
+      void . pure $ rm == Prepared
+      void $ canCommit rms
+      (#resourceManagers .= pure (V.update rms [(idx,Committed)])) $> True
 
-      -- Indirect Actions
-      decideCommit :: Int -> ResourceManagerState -> Vector ResourceManagerState -> Action TransactionCommit Bool
-      decideCommit idx rm rms = do
-        void . pure $ rm == Prepared
-        void $ canCommit rms
-        (#resourceManagers .= pure (V.update rms [(idx,Committed)])) $> True
+    decideAbort :: Int -> ResourceManagerState -> Vector ResourceManagerState -> Action TransactionCommit Bool
+    decideAbort idx rm rms = do
+      void . pure $ rm == Working || rm == Prepared
+      void $ notCommitted rms
+      (#resourceManagers .= pure (V.update rms [(idx,Aborted)])) $> True
 
-      decideAbort :: Int -> ResourceManagerState -> Vector ResourceManagerState -> Action TransactionCommit Bool
-      decideAbort idx rm rms = do
-        void . pure $ rm == Working || rm == Prepared
-        void $ notCommitted rms
-        (#resourceManagers .= pure (V.update rms [(idx,Aborted)])) $> True
+    canCommit :: Vector ResourceManagerState -> Action TransactionCommit Bool
+    canCommit rms = forall rms $ \rm -> pure $ rm == Prepared || rm == Committed
 
-      canCommit :: Vector ResourceManagerState -> Action TransactionCommit Bool
-      canCommit rms = forall rms $ \rm -> pure $ rm == Prepared || rm == Committed
-
-      notCommitted :: Vector ResourceManagerState -> Action TransactionCommit Bool
-      notCommitted rms = forall rms $ \rm -> pure $ rm /= Committed
+    notCommitted :: Vector ResourceManagerState -> Action TransactionCommit Bool
+    notCommitted rms = forall rms $ \rm -> pure $ rm /= Committed
 
 formula :: Invariant TransactionCommit Bool
 formula =
