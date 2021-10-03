@@ -1,5 +1,5 @@
 {-# LANGUAGE OverloadedLabels, ExplicitNamespaces, DeriveAnyClass, DeriveGeneric #-}
-module TransactionCommit where
+module PaxosCommit where
 
 import Prelude
 import Data.Hashable
@@ -56,78 +56,27 @@ initial :: Constants -> Initial TransactionCommit ()
 initial k = do
   #resourceManagers `define` pure ([1.. (rmQuantity k)] $> Working)
 
-unsafeUpdate :: Int -> a -> [a] -> [a]
-unsafeUpdate i e xs =
-  let (init, _:tail) = splitAt i xs
-   in init ++ e : tail
-
 next :: Action TransactionCommit Bool
-next = foldr (\/) (pure True)
-  [ prepare
-  , decide
-  ]
-
-    where
-      -- Direct Actions
-      prepare = do
-        rms <- plain #resourceManagers
-        exists (zip [0..] rms) $ \(idx,rm) -> do
-          void . pure $ rm == Working
-          (#resourceManagers .= pure (unsafeUpdate idx Prepared rms)) $> True
-      decide = do
-        rms <- plain #resourceManagers
-        exists (zip [0..] rms) $ \(idx,rm) ->
-             decideCommit idx rm rms
-          /\ decideAbort idx rm rms
-
-
-      -- Indirect Actions
-      decideCommit :: Int -> ResourceManagerState -> [ResourceManagerState] -> Action TransactionCommit Bool
-      decideCommit idx rm rms = do
-        void . pure $ rm == Prepared
-        void $ canCommit rms
-        (#resourceManagers .= pure (unsafeUpdate idx Committed rms)) $> True
-
-      decideAbort :: Int -> ResourceManagerState -> [ResourceManagerState] -> Action TransactionCommit Bool
-      decideAbort idx rm rms = do
-        void . pure $ rm == Working || rm == Prepared
-        void $ notCommitted rms
-        (#resourceManagers .= pure (unsafeUpdate idx Aborted rms)) $> True
-
-      canCommit :: [ResourceManagerState] -> Action TransactionCommit Bool
-      canCommit rms = forall rms $ \rm -> pure $ rm == Prepared || rm == Committed
-
-      notCommitted :: [ResourceManagerState] -> Action TransactionCommit Bool
-      notCommitted rms = forall rms $ \rm -> pure $ rm /= Committed
+next = pure True
 
 
 
 formula :: Invariant TransactionCommit Bool
-formula =
-  always (not <$> abortAndCommit)
-    where
-      abortAndCommit = do
-        rms <- plain #resourceManagers
-        pure (elem Committed rms && elem Aborted rms)
+formula = always True
 
 termination :: Terminate TransactionCommit Bool
-termination = do
-  rms <- plain #resourceManagers
-  pure $ all (== Committed) rms || all (== Aborted) rms
+termination = pure True
 
+
+spec :: Specification PaxosCommit
+spec =
+  Specification
+    { initialAction = initial constants
+    , nextAction = next
+    , temporalFormula = formula
+    , terminationFormula = Just termination
+    , fairnessConstraint = strongFair
+    }
 
 check :: IO ()
-check = do
-  let constants = Constants { rmQuantity = 7 }
-      spec :: Specification TransactionCommit
-      spec =
-        Specification
-          { initialAction = initial constants
-          , nextAction = next
-          , temporalFormula = formula
-          , terminationFormula = Just termination
-          , fairnessConstraint = strongFair
-          }
-  defaultInteraction (modelCheck spec)
-
----- $> check
+check = defaultInteraction (modelCheck spec)
